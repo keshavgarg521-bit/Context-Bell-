@@ -1,0 +1,25 @@
+# ContextBell TODO
+
+- [x] Database schema: lectures, confusion_moments, transcripts, audio_clips, chat_messages
+- [x] Server DB helpers: all CRUD operations for sessions/moments/transcripts
+- [x] tRPC procedures: session CRUD, moment capture, audio upload, transcription, AI explanations, summaries, quizzes, chatbot, teacher analytics
+- [x] Dark theme with OKLCH indigo/violet color palette
+- [x] Google Fonts: Inter + JetBrains Mono
+- [x] Landing page with hero, feature cards, CTA
+- [x] Session creation page (join)
+- [x] Live session page with start recording, bell capture, 15s-before/after audio, 15s cooldown
+- [x] Audio capture hook with rolling buffer and bell capture
+- [x] Speech-to-text transcription integration (browser SpeechRecognition)
+- [x] File storage for audio clips (S3)
+- [x] AI-powered confusion point explanations (LLM)
+- [x] AI lecture summary generation (LLM)
+- [x] AI quiz generation from confusion points (LLM)
+- [x] AI chatbot with full session context (LLM)
+- [x] Revision workspace listing all sessions
+- [x] Session review page with confusion points, audio, explanations
+- [x] Quiz page with per-question feedback
+- [x] Summary page with AI-generated overview
+- [x] Teacher analytics dashboard with confusion timeline, topic breakdown, AI suggestions
+- [x] Navigation between all pages
+- [x] Vitest tests for moment capture, AI flows, teacher analytics (24 tests, 3 files)
+- [x] Vitest tests for session CRUD and auth
