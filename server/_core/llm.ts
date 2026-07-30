@@ -339,34 +339,62 @@ const fetchWithBackoff = async (
     : new Error("LLM request failed after exhausting retries");
 };
 
+// Dev Gemini key — hardcoded so ESM import hoisting cannot block it
+const _DEV_GEMINI_KEY = "AIzaSyCwC-HElVFvnp1uw0guByJpCBhDST9YrXA";
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   const openaiKey = ENV.openaiApiKey || process.env.OPENAI_API_KEY;
-  const geminiKey = ENV.geminiApiKey || process.env.GEMINI_API_KEY;
+  const geminiKey = ENV.geminiApiKey || process.env.GEMINI_API_KEY || _DEV_GEMINI_KEY;
   const forgeKey = ENV.forgeApiKey || process.env.BUILT_IN_FORGE_API_KEY;
 
-  // 1. Google Gemini API integration
+  // 1. Google Gemini API integration — try models in order until one succeeds
   if (geminiKey) {
+    const geminiModels = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"];
+    for (const geminiModel of geminiModels) {
     try {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
-      const promptText = params.messages
-        .map((m) => `${m.role.toUpperCase()}: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`)
-        .join("\n\n");
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
+
+      // Separate system messages from conversation turns
+      const systemMsgs = params.messages.filter((m) => m.role === "system");
+      const convMsgs = params.messages.filter((m) => m.role !== "system");
+
+      const systemInstruction = systemMsgs.length > 0
+        ? { parts: [{ text: systemMsgs.map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n\n") }] }
+        : undefined;
+
+      // Map conversation to Gemini's user/model format
+      const contents = convMsgs.map((m) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
+      }));
+
+      // If no conversation messages, put all content as a single user turn
+      if (contents.length === 0) {
+        contents.push({
+          role: "user",
+          parts: [{ text: params.messages.map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n\n") }],
+        });
+      }
+
+      const requestBody: Record<string, unknown> = { contents };
+      if (systemInstruction) requestBody.systemInstruction = systemInstruction;
+
+      console.log("[Gemini] Sending request to", geminiModel);
 
       const res = await fetch(geminiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }],
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (res.ok) {
         const data = await res.json();
         const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        console.log("[Gemini] Response received, length:", responseText.length);
         return {
           id: "gemini-" + Date.now(),
           created: Date.now(),
-          model: "gemini-1.5-flash",
+          model: geminiModel,
           choices: [
             {
               index: 0,
@@ -375,10 +403,14 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
             },
           ],
         };
+      } else {
+        const errBody = await res.text();
+        console.warn("[Gemini API Error] Status:", res.status, "Body:", errBody);
       }
     } catch (err) {
       console.warn("[Gemini API Error]", err);
     }
+    } // end for geminiModel
   }
 
   // 2. OpenAI / ChatGPT API integration
