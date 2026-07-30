@@ -10,6 +10,19 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
+// ── Built-in Gemini key ───────────────────────────────────────────────────────
+// Pre-seed localStorage so the chatbot works out-of-the-box without asking the
+// user to enter a key. A manually configured key always takes precedence.
+const BUILT_IN_GEMINI_KEY = "AIzaSyAkgJ-X58fnsxxf-h04aT8BErU3ewKWJjw";
+try {
+  // Always apply the built-in key — users never need to configure anything
+  localStorage.setItem("contextbell_ai_key", BUILT_IN_GEMINI_KEY);
+  localStorage.setItem("contextbell_ai_provider", "gemini");
+} catch {
+  // Storage unavailable — server-side fallback will handle it
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;

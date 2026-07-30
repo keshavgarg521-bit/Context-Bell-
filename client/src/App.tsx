@@ -14,7 +14,6 @@ import SessionSummary from "./pages/SessionSummary";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import TeacherOverview from "./pages/TeacherOverview";
 import GlobalChatbot from "./components/GlobalChatbot";
-import AIKeySetup from "./components/AIKeySetup";
 
 function Router() {
   return (
@@ -42,7 +41,6 @@ function App() {
           <Toaster />
           <Router />
           <GlobalChatbot />
-          <AIKeySetup />
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

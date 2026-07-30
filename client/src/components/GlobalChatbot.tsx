@@ -2,12 +2,11 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { MessageCircle, X, Send, Loader2, Bot, Settings } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Bot } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { Streamdown } from "streamdown";
-import { AISettingsModal } from "./AISettingsModal";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -18,7 +17,6 @@ export default function GlobalChatbot() {
   const { isAuthenticated } = useAuth();
   const [location] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [currentLectureId, setCurrentLectureId] = useState<string | null>(null);
@@ -127,13 +125,6 @@ export default function GlobalChatbot() {
             </div>
             <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setIsSettingsOpen(true)}
-                title="Configure ChatGPT or Gemini API Key"
-                className="text-muted-foreground hover:text-primary transition-colors cursor-pointer p-1 rounded-md hover:bg-secondary/50"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-              <button
                 onClick={() => setIsOpen(false)}
                 className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-md hover:bg-secondary/50"
               >
@@ -232,7 +223,6 @@ export default function GlobalChatbot() {
         </div>
       )}
 
-      <AISettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </>
   );
 }

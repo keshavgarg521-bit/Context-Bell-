@@ -340,7 +340,7 @@ const fetchWithBackoff = async (
 };
 
 // Dev Gemini key — hardcoded so ESM import hoisting cannot block it
-const _DEV_GEMINI_KEY = "AIzaSyCwC-HElVFvnp1uw0guByJpCBhDST9YrXA";
+const _DEV_GEMINI_KEY = "AIzaSyAkgJ-X58fnsxxf-h04aT8BErU3ewKWJjw";
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   const openaiKey = ENV.openaiApiKey || process.env.OPENAI_API_KEY;

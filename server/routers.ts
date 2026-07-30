@@ -101,7 +101,231 @@ Analyze the actual audio transcript provided below:`,
   return content;
 }
 
-// ─── Helper: generate AI summary ─────────────────────────────────────────────
+// ─── Helper: generate AI explanation with actual audio via Gemini multimodal ──
+
+async function generateExplanationWithAudio(
+  audioClipUrl: string,
+  transcriptContext: string,
+  topic: string
+): Promise<string> {
+  const GEMINI_KEY = process.env.GEMINI_API_KEY || "AIzaSyAkgJ-X58fnsxxf-h04aT8BErU3ewKWJjw";
+
+  // Extract base64 audio for Gemini inline data
+  // Node.js fetch() does NOT support data: URLs, so we handle them manually.
+  let audioBase64 = "";
+  let mimeType = "audio/webm";
+  try {
+    if (audioClipUrl.startsWith("data:")) {
+      // data:audio/webm;base64,XXXX — split at the comma
+      const commaIdx = audioClipUrl.indexOf(",");
+      if (commaIdx !== -1) {
+        const header = audioClipUrl.slice(5, commaIdx); // strip "data:"
+        const mimeMatch = header.match(/^([^;]+)/);
+        if (mimeMatch) mimeType = mimeMatch[1];
+        audioBase64 = audioClipUrl.slice(commaIdx + 1);
+      }
+    } else if (audioClipUrl.startsWith("http")) {
+      // Real HTTP URL — download it
+      const audioRes = await fetch(audioClipUrl);
+      if (audioRes.ok) {
+        const buf = await audioRes.arrayBuffer();
+        audioBase64 = Buffer.from(buf).toString("base64");
+        mimeType = audioRes.headers.get("content-type") || "audio/webm";
+      }
+    }
+  } catch (err) {
+    console.warn("[Audio Download] Failed to extract audio for explanation:", err);
+  }
+  console.log(`[Gemini Multimodal] Audio extracted: ${audioBase64.length} base64 chars, mime: ${mimeType}`);
+
+  const geminiModels = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"];
+
+  for (const model of geminiModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
+
+      // Build parts — always include the text prompt; add audio inline if we have it
+      const userParts: Record<string, unknown>[] = [];
+
+      if (audioBase64) {
+        userParts.push({
+          inlineData: { mimeType, data: audioBase64 },
+        });
+      }
+
+      userParts.push({
+        text: audioBase64
+          ? `IMPORTANT: Listen carefully to the audio recording attached above. First transcribe what you heard in the audio, then explain the concept being discussed.\n\nTopic label the student gave: "${topic || "Core Concept"}"\nText transcript hint: "${transcriptContext || "listen to audio"}"\n\nStep 1: Transcribe what you heard in the audio.\nStep 2: Based on what was actually spoken in the audio, provide a clear educational explanation.`
+          : `Topic: "${topic || "Core Concept"}"\nTranscript: "${transcriptContext || "no audio available"}"\n\nProvide a clear educational explanation of this topic.`,
+      });
+
+      const body = {
+        systemInstruction: {
+          parts: [
+            {
+              text: audioBase64
+                ? `You are an expert educational AI. A student was confused during a lecture and their microphone recorded the 30-second audio clip attached.
+
+CRITICAL INSTRUCTIONS:
+1. FIRST listen to the audio — transcribe exactly what was being said in the recording.
+2. THEN identify what concept or topic was being explained at the point of confusion.
+3. THEN explain that specific concept clearly and thoroughly.
+
+Your response format:
+**🎙️ What I Heard**: [Transcribe the key content from the audio]
+**🔍 The Concept Being Explained**: [Identify the specific topic]
+**💡 Clear Explanation**: [Explain it step-by-step from basics to the confusing part]
+**🌍 Real-World Analogy**: [Give an intuitive analogy]
+**🎯 Key Takeaway**: [Single most important point]
+**📝 Quick Check**: [One practice question + answer]
+
+Base EVERYTHING on what is actually said in the audio. Do NOT give generic explanations.`
+                : `You are an expert educational AI. A student was confused during a lecture.
+Topic: "${topic || "the concept being discussed"}"
+Transcript context: "${transcriptContext || "not available"}"
+
+Provide a helpful, structured educational explanation:
+**🔍 Concept Explained**: [What this topic is about]
+**💡 Step-by-Step Breakdown**: [Explain from basics]
+**🌍 Real-World Analogy**: [Intuitive analogy]
+**🎯 Key Takeaway**: [Most important point]
+**📝 Quick Check**: [Practice question + answer]`,
+            },
+          ],
+        },
+        contents: [{ role: "user", parts: userParts }],
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        if (text) {
+          console.log(`[Gemini Multimodal] Audio explanation generated via ${model}`);
+          return text;
+        }
+      } else {
+        console.warn(`[Gemini Multimodal] ${model} failed:`, res.status, await res.text().catch(() => ""));
+      }
+    } catch (err) {
+      console.warn(`[Gemini Multimodal] ${model} error:`, err);
+    }
+  }
+
+  // Fallback to text-only explanation
+  console.warn("[Gemini Multimodal] All models failed, falling back to text-only explanation");
+  return generateExplanation(transcriptContext, topic);
+}
+
+// ─── Helper: generate AI summary using Gemini with full session context ───────
+
+async function generateSummaryWithAudio(
+  transcript: string,
+  moments: { topic: string | null; timestamp: number; transcriptContext: string | null; audioClipUrl: string | null }[]
+): Promise<string> {
+  const GEMINI_KEY = process.env.GEMINI_API_KEY || "AIzaSyAkgJ-X58fnsxxf-h04aT8BErU3ewKWJjw";
+
+  const confusionList = moments
+    .map((m, i) => `${i + 1}. [${m.timestamp}s] Topic: ${m.topic ?? "Unknown"} — Context: ${m.transcriptContext ?? "N/A"}`)
+    .join("\n");
+
+  // Try to collect audio clips for richer context (up to 3 clips to stay within limits)
+  const audioClips: { base64: string; mimeType: string; timestamp: number }[] = [];
+  for (const m of moments.slice(0, 3)) {
+    if (!m.audioClipUrl) continue;
+    try {
+      let base64 = "";
+      let mime = "audio/webm";
+      if (m.audioClipUrl.startsWith("data:")) {
+        // Node.js fetch() does NOT support data: URLs — extract manually
+        const commaIdx = m.audioClipUrl.indexOf(",");
+        if (commaIdx !== -1) {
+          const header = m.audioClipUrl.slice(5, commaIdx);
+          const mimeMatch = header.match(/^([^;]+)/);
+          if (mimeMatch) mime = mimeMatch[1];
+          base64 = m.audioClipUrl.slice(commaIdx + 1);
+        }
+      } else if (m.audioClipUrl.startsWith("http")) {
+        const r = await fetch(m.audioClipUrl);
+        if (r.ok) {
+          base64 = Buffer.from(await r.arrayBuffer()).toString("base64");
+          mime = r.headers.get("content-type") || "audio/webm";
+        }
+      }
+      if (base64) audioClips.push({ base64, mimeType: mime, timestamp: m.timestamp });
+    } catch { /* skip */ }
+  }
+
+  const geminiModels = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"];
+
+  for (const model of geminiModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
+
+      const userParts: Record<string, unknown>[] = [];
+
+      // Add audio clips as inline data
+      for (const clip of audioClips) {
+        userParts.push({ text: `[Audio clip at ${clip.timestamp}s — confusion moment]:` });
+        userParts.push({ inlineData: { mimeType: clip.mimeType, data: clip.base64 } });
+      }
+
+      userParts.push({
+        text: `Full Lecture Transcript:\n${transcript || "Not available"}\n\nConfusion Points (when student pressed the bell):\n${confusionList}\n\nGenerate a comprehensive yet concise AI summary of this lecture session.`,
+      });
+
+      const body = {
+        systemInstruction: {
+          parts: [
+            {
+              text: `You are an expert lecture summarizer. You have access to the full lecture transcript and audio recordings from confusion moments.
+Analyze ALL the provided content — transcript text AND audio clips — to generate an accurate summary.
+
+Your summary must include:
+- **📖 Overview**: 2-3 sentences describing what the lecture actually covered (based on real content)
+- **🔑 Key Topics Covered**: 4-6 main concepts that were taught
+- **❓ Confusion Points**: What specifically confused the student at each bell-press moment, with brief clarification
+- **💡 Key Takeaways**: 3-5 most important points to remember from this lecture
+- **📚 Suggested Review**: What the student should revisit or practice
+
+Base your summary on the ACTUAL audio and transcript content — not generic knowledge. Make it specific and useful.`,
+            },
+          ],
+        },
+        contents: [{ role: "user", parts: userParts }],
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        if (text) {
+          console.log(`[Gemini Summary] Generated via ${model} with ${audioClips.length} audio clips`);
+          return text;
+        }
+      } else {
+        console.warn(`[Gemini Summary] ${model} failed:`, res.status, await res.text().catch(() => ""));
+      }
+    } catch (err) {
+      console.warn(`[Gemini Summary] ${model} error:`, err);
+    }
+  }
+
+  // Fallback to text-only summary
+  return generateSummary(transcript, moments);
+}
+
+// ─── Helper: generate AI summary (text-only fallback) ─────────────────────────
 
 async function generateSummary(transcript: string, moments: { topic: string | null; timestamp: number }[]): Promise<string> {
   const confusionList = moments.map((m, i) => `${i + 1}. [${m.timestamp}s] ${m.topic ?? "Unknown topic"}`).join("\n");
@@ -344,14 +568,9 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
         }
         const moments = await db.getConfusionMoments(input.lectureId);
-        return moments.map((m) => {
-          if (!m.audioClipUrl) {
-            const fallbackPcm = generatePcmWavBuffer(4);
-            const base64 = fallbackPcm.toString("base64");
-            return { ...m, audioClipUrl: `data:audio/wav;base64,${base64}` };
-          }
-          return m;
-        });
+        // Return moments as-is. audioClipUrl may be a real URL or a data: URL.
+        // Do NOT replace missing audio with a fake PCM beep — that confuses Gemini.
+        return moments;
       }),
 
     getById: protectedProcedure
@@ -424,10 +643,17 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
         }
 
-        const explanation = await generateExplanation(
-          moment.transcriptContext ?? "",
-          moment.topic ?? "the concept being discussed"
-        );
+        // Use audio-powered Gemini multimodal explanation if audio is available
+        const explanation = moment.audioClipUrl
+          ? await generateExplanationWithAudio(
+              moment.audioClipUrl,
+              moment.transcriptContext ?? "",
+              moment.topic ?? "the concept being discussed"
+            )
+          : await generateExplanation(
+              moment.transcriptContext ?? "",
+              moment.topic ?? "the concept being discussed"
+            );
         await db.setMomentExplanation(input.momentId, explanation);
 
         return { explanation };
@@ -450,10 +676,16 @@ export const appRouter = router({
             results.push({ id: moment.id, explanation: moment.aiExplanation });
             continue;
           }
-          const explanation = await generateExplanation(
-            moment.transcriptContext ?? "",
-            moment.topic ?? "the concept being discussed"
-          );
+          const explanation = moment.audioClipUrl
+            ? await generateExplanationWithAudio(
+                moment.audioClipUrl,
+                moment.transcriptContext ?? "",
+                moment.topic ?? "the concept being discussed"
+              )
+            : await generateExplanation(
+                moment.transcriptContext ?? "",
+                moment.topic ?? "the concept being discussed"
+              );
           await db.setMomentExplanation(moment.id, explanation);
           results.push({ id: moment.id, explanation });
         }
@@ -470,14 +702,17 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
         }
 
-        if (lecture.aiSummary) {
-          return { summary: lecture.aiSummary };
-        }
-
         const moments = await db.getConfusionMoments(input.lectureId);
-        const summary = await generateSummary(
+
+        // Use Gemini multimodal with real audio + transcript for a grounded summary
+        const summary = await generateSummaryWithAudio(
           lecture.transcript ?? "",
-          moments.map((m) => ({ topic: m.topic, timestamp: m.timestamp }))
+          moments.map((m) => ({
+            topic: m.topic,
+            timestamp: m.timestamp,
+            transcriptContext: m.transcriptContext,
+            audioClipUrl: m.audioClipUrl,
+          }))
         );
         await db.setLectureAISummary(input.lectureId, summary);
 

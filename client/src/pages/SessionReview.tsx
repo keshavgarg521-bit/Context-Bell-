@@ -287,11 +287,16 @@ export default function SessionReview() {
                           Download Audio
                         </a>
                       </div>
-                      <audio controls src={moment.audioClipUrl} className="w-full h-10 rounded-lg outline-none" />
+                      <audio
+                        controls
+                        src={moment.audioClipUrl}
+                        className="w-full h-10 rounded-lg outline-none"
+                        preload="metadata"
+                      />
                     </div>
                   ) : (
                     <div className="mt-4 p-3 rounded-xl bg-secondary/10 border border-border/30 text-xs text-muted-foreground text-center">
-                      🎙️ Audio clip saved to local storage
+                      🎙️ No audio recorded for this confusion point
                     </div>
                   )}
 
