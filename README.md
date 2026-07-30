@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ContextBell - Local Development Guide
 
 This is the main ContextBell project (Vite + React + Express). It has been configured to run on your laptop with minimal setup.
@@ -34,3 +35,8 @@ This is the main ContextBell project (Vite + React + Express). It has been confi
 
 ## AI Features
 The app will attempt to use the Manus Forge API for AI explanations and summaries. If no API key is provided in `.env`, it will fallback to helpful mock responses.
+=======
+# Context-Bell-
+This is my hackathon based project based on clering users confusion point 
+>>>>>>> 5166b233ad9d764f96b4f1a328b6d7b2b97366e3
+hello
